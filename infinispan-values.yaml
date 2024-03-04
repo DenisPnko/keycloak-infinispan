@@ -1,0 +1,201 @@
+# Default values for infinispan-helm-charts.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+images:
+  # [USER] The container images for server pods.
+  server: quay.io/infinispan/server:14.0
+  initContainer: registry.access.redhat.com/ubi8-micro
+
+deploy:
+  # [USER] Specify the number of nodes in the cluster.
+  replicas: 1
+
+  clusterDomain: cluster.local
+
+  container:
+    extraJvmOpts: ""
+    libraries: ""
+    # [USER] Define custom environment variables using standard K8s format
+    # env:
+    #  - name: STANDARD_KEY
+    #    value: standard value
+    #  - name: CONFIG_MAP_KEY
+    #    valueFrom:
+    #      configMapKeyRef:
+    #        name: special-config
+    #        key: special.how
+    #  - name: SECRET_KEY
+    #    valueFrom:
+    #      secretKeyRef:
+    #        name: special-secret
+    #        key: special.how
+    env:
+    storage:
+      size: 1Gi
+      storageClassName: ""
+      # [USER] Set `ephemeral: true` to delete all persisted data when clusters shut down or restart.
+      ephemeral: false
+    resources:
+      # [USER] Specify the CPU limit and the memory limit for each pod.
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      # [USER] Specify the maximum CPU requests and the maximum memory requests for each pod.
+      requests:
+        cpu: 500m
+        memory: 512Mi
+
+  security:
+    secretName: ""
+    # can be done securely via https://infinispan.org/docs/helm-chart/main/helm-chart.html#adding-multiple-credentials_configuring-authentication
+    batch: "user create application -p changeme -g application"
+  expose:
+    # [USER] Specify `type: ""` to disable network access to clusters.
+    type: Route
+    nodePort: 0
+    host: ""
+    annotations: []
+
+  monitoring:
+    enabled: false
+
+  logging:
+    categories:
+      - category: org.infinispan
+        level: debug
+      # [USER] Specify the FQN of a package from which you want to collect logs.
+      - category: com.arjuna
+        # [USER] Specify the level of log messages.
+        level: warn
+      # No need to warn about not being able to TLS/SSL handshake
+      - category: io.netty.handler.ssl.ApplicationProtocolNegotiationHandler
+        level: error
+
+  makeDataDirWritable: false
+
+  nameOverride: ""
+
+  resourceLabels: []
+
+  podLabels: []
+
+  svcLabels: []
+
+  tolerations: []
+
+  nodeAffinity: {}
+
+  nodeSelector: {}
+
+  securityContext: {}
+
+  ssl:
+    endpointSecretName: ""
+    transportSecretName: ""
+
+  infinispan:
+    cacheContainer:
+      # [USER] Add cache, template, and counter configuration.
+      name: default
+      # [USER] Specify `security: null` to disable security authorization.
+      security:
+        authorization: {}
+      transport:
+        cluster: ${infinispan.cluster.name:cluster}
+        node-name: ${infinispan.node.name:}
+        stack: kubernetes
+      serialization:
+        marshaller: "org.infinispan.jboss.marshalling.commons.GenericJBossMarshaller"
+        allow-list:
+          class: "org.*"
+          regex: ".*"
+      distributedCache:
+        name: "sessions"
+        mode: "SYNC"
+        owners: "1"
+        segments: "256"
+        capacityFactor: "1.0"
+        statistics: "false"
+        encoding:
+          mediaType: "application/x-jboss-marshalling"
+        security:
+          authorization:
+            enabled: "true"
+            roles:
+              - "admin"
+              - "application"
+        expiration:
+          lifespan: "5000"
+          maxIdle: "1000"
+        memory:
+          maxCount: "100000"
+          whenFull: "REMOVE"
+        partitionHandling:
+          whenSplit: "ALLOW_READ_WRITES"
+          mergePolicy: "PREFERRED_NON_NULL"
+    server:
+      endpoints:
+      # [USER] Hot Rod and REST endpoints.
+      - securityRealm: default
+        socketBinding: default
+        connectors:
+          rest:
+            restConnector:
+          hotrod:
+            hotrodConnector:
+          # [MEMCACHED] Uncomment to enable Memcached endpoint
+          # memcached:
+          #   memcachedConnector:
+          #     socketBinding: memcached
+      # [METRICS] Metrics endpoint for cluster monitoring capabilities.
+      - connectors:
+          rest:
+            restConnector:
+              authentication:
+                mechanisms: BASIC
+        securityRealm: metrics
+        socketBinding: metrics
+      interfaces:
+      - inetAddress:
+          value: ${infinispan.bind.address:127.0.0.1}
+        name: public
+      security:
+        credentialStores:
+        - clearTextCredential:
+            clearText: secret
+          name: credentials
+          path: credentials.pfx
+        securityRealms:
+        # [USER] Security realm for the Hot Rod and REST endpoints.
+        - name: default
+          # [USER] Comment or remove this properties realm to disable authentication.
+          propertiesRealm:
+            groupProperties:
+              path: groups.properties
+            groupsAttribute: Roles
+            userProperties:
+              path: users.properties
+          # [METRICS] Security realm for the metrics endpoint.
+        - name: metrics
+          propertiesRealm:
+            groupProperties:
+              path: metrics-groups.properties
+              relativeTo: infinispan.server.config.path
+            groupsAttribute: Roles
+            userProperties:
+              path: metrics-users.properties
+              relativeTo: infinispan.server.config.path
+      socketBindings:
+        defaultInterface: public
+        portOffset: ${infinispan.socket.binding.port-offset:0}
+        socketBinding:
+          # [USER] Socket binding for the Hot Rod and REST endpoints.
+        - name: default
+          port: 11222
+          # [METRICS] Socket binding for the metrics endpoint.
+        - name: metrics
+          port: 11223
+          # [MEMCACHED] Uncomment to enable Memcached endpoint
+        # - name: memcached
+        #   port: 11221

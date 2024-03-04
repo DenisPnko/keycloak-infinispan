@@ -1,0 +1,198 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  labels:
+    app: keycloak
+spec:
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+  selector:
+    app: keycloak
+  type: ClusterIP
+  clusterIP: None
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels:
+    app: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:23.0.7
+          args: ["start", "--cache-stack=kubernetes"]
+          volumeMounts:
+          - name: certs
+            mountPath: "/etc/certs"
+            readOnly: true
+          - name: kcb-infinispan-cache-config
+            mountPath: /opt/keycloak/conf/kcb-infinispan-cache-remote-store-config.xml
+            subPath: kcb-infinispan-cache-remote-store-config.xml
+            readOnly: true
+          env:
+            - name: KC_CACHE_CONFIG_FILE
+              value: "kcb-infinispan-cache-remote-store-config.xml"
+            - name: KEYCLOAK_ADMIN
+              value: "admin"
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              value: "admin"
+            - name: KC_HTTPS_CERTIFICATE_FILE
+              value: "/etc/certs/tls.crt"
+            - name: KC_HTTPS_CERTIFICATE_KEY_FILE
+              value: "/etc/certs/tls.key"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_METRICS_ENABLED
+              value: "true"
+            - name: KC_HOSTNAME
+              value: "kc.localtest.me"
+            - name: KC_PROXY
+              value: "edge"
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: "jdbc:postgresql://postgre-db-postgresql-ha-pgpool.keycloak.svc.cluster.local/postgres"
+            - name: KC_DB_USERNAME
+              value: "postgres"
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgre-db-postgresql-ha-postgresql
+                  key: password
+            - name: jgroups.dns.query
+              value: "keycloak"
+            - name: KC_REMOTE_STORE_HOST
+              value: "infinispan.infinispan.svc.cluster.local"
+            - name: KC_REMOTE_STORE_PORT
+              value: "11222"
+            # Credentials should be deployed as Kubernetes secrets
+            - name: KC_REMOTE_STORE_USERNAME
+              value: "application"
+            - name: KC_REMOTE_STORE_PASSWORD
+              value: "changeme"
+          ports:
+            - name: jgroups
+              containerPort: 7600
+            - name: https
+              containerPort: 8443
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /health/ready
+              port: 8443
+            initialDelaySeconds: 60
+            periodSeconds: 1
+      volumes:
+      - name: certs
+        secret:
+          secretName: kc-tls-secret
+      - name: kcb-infinispan-cache-config
+        configMap:
+          name: kcb-infinispan-cache-config
+          items:
+            - key: kcb-infinispan-cache-remote-store-config.xml
+              path: kcb-infinispan-cache-remote-store-config.xml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kcb-infinispan-cache-config
+  namespace: keycloak
+data:
+  kcb-infinispan-cache-remote-store-config.xml: |
+    <infinispan
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="urn:infinispan:config:14.0 http://www.infinispan.org/schemas/infinispan-config-14.0.xsd"
+            xmlns="urn:infinispan:config:14.0">
+
+        <cache-container name="keycloak">
+            <transport lock-timeout="60000"/>
+            <local-cache name="realms" simple-cache="true">
+                <encoding>
+                    <key media-type="application/x-java-object"/>
+                    <value media-type="application/x-java-object"/>
+                </encoding>
+                <memory max-count="10000"/>
+            </local-cache>
+            <local-cache name="users" simple-cache="true">
+                <encoding>
+                    <key media-type="application/x-java-object"/>
+                    <value media-type="application/x-java-object"/>
+                </encoding>
+                <memory max-count="10000"/>
+            </local-cache>
+            <distributed-cache name="sessions" owners="1">
+              <persistence passivation="false">
+                  <remote-store xmlns="urn:infinispan:config:store:remote:14.0"
+                                cache="sessions"
+                                purge="false"
+                                preload="false"
+                                segmented="false"
+                                shared="true"
+                                raw-values="true"
+                                marshaller="org.keycloak.cluster.infinispan.KeycloakHotRodMarshallerFactory">
+                      <remote-server host="${env.KC_REMOTE_STORE_HOST}" port="${env.KC_REMOTE_STORE_PORT}" />
+                      <security>
+                        <authentication server-name="infinispan">
+                            <digest username="${env.KC_REMOTE_STORE_USERNAME}" password="${env.KC_REMOTE_STORE_PASSWORD}" realm="default" />
+                        </authentication>
+                      </security>
+                  </remote-store>
+              </persistence>
+            </distributed-cache>
+            <distributed-cache name="authenticationSessions" owners="2">
+                <expiration lifespan="-1"/>
+            </distributed-cache>
+            <distributed-cache name="offlineSessions" owners="2">
+                <expiration lifespan="-1"/>
+            </distributed-cache>
+            <distributed-cache name="clientSessions" owners="2">
+                <expiration lifespan="-1"/>
+            </distributed-cache>
+            <distributed-cache name="offlineClientSessions" owners="2">
+                <expiration lifespan="-1"/>
+            </distributed-cache>
+            <distributed-cache name="loginFailures" owners="2">
+                <expiration lifespan="-1"/>
+            </distributed-cache>
+            <local-cache name="authorization" simple-cache="true">
+                <encoding>
+                    <key media-type="application/x-java-object"/>
+                    <value media-type="application/x-java-object"/>
+                </encoding>
+                <memory max-count="10000"/>
+            </local-cache>
+            <replicated-cache name="work">
+                <expiration lifespan="-1"/>
+            </replicated-cache>
+            <local-cache name="keys" simple-cache="true">
+                <encoding>
+                    <key media-type="application/x-java-object"/>
+                    <value media-type="application/x-java-object"/>
+                </encoding>
+                <expiration max-idle="3600000"/>
+                <memory max-count="1000"/>
+            </local-cache>
+            <distributed-cache name="actionTokens" owners="2">
+                <encoding>
+                    <key media-type="application/x-java-object"/>
+                    <value media-type="application/x-java-object"/>
+                </encoding>
+                <expiration max-idle="-1" lifespan="-1" interval="300000"/>
+                <memory max-count="-1"/>
+            </distributed-cache>
+        </cache-container>
+    </infinispan>
