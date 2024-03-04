@@ -122,7 +122,7 @@ https://kc.localtest.me/
 And Infinispan Server console:
 http://0.0.0.0:11222/console/
 
-## Adding keyclock-metrics-api provider
+## Adding keyclock-metrics-spi provider
 
 To be able to add the Keycloak Metrics SPI provider you will first need to build the project .jar file by following the instructions on https://github.com/aerogear/keycloak-metrics-spi
 
