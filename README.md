@@ -48,7 +48,7 @@ kubectl create ns infinispan
 Installing PosgreSQL-HA database in the keycloak namespace with one replica set (to make it easier to scale up later)
 
 ```
-helm install -n keycloak postgre-db bitnami/postgresql-ha --set postgresql.replicaCount=1
+helm install -n keycloak postgre-db bitnami/postgresql-ha --set postgresql.replicaCount=1 --version 13.4.5
 ```
 ## Infinispan server
 
@@ -84,7 +84,7 @@ distributedCache:
 To install:
 
 ```
-helm install -n infinispan infinispan openshift-helm-charts/infinispan-infinispan --values infinispan-values.yaml
+helm install -n infinispan infinispan openshift-helm-charts/infinispan-infinispan --values infinispan-values.yaml --version 0.3.2
 ```
 
 ## Keycloak
